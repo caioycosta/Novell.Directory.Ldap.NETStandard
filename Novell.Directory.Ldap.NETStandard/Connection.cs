@@ -328,8 +328,8 @@ namespace Novell.Directory.Ldap
 		* or stopTLS has been called to end TLS protection
 		*/
 		private System.Net.Sockets.Socket sock = null;
-		private System.Net.Sockets.TcpClient socket = null;
-		private System.Net.Sockets.TcpClient nonTLSBackup = null;
+		private Novell.Directory.Ldap.NETStandard.TcpClientWithDispose socket = null;
+		private Novell.Directory.Ldap.NETStandard.TcpClientWithDispose nonTLSBackup = null;
 		
 		private System.IO.Stream in_Renamed = null;
 		private System.IO.Stream out_Renamed = null;
@@ -713,7 +713,7 @@ namespace Novell.Directory.Ldap
                         }
                         else
 						{
-						    socket = new System.Net.Sockets.TcpClient();
+							socket = new Novell.Directory.Ldap.NETStandard.TcpClientWithDispose();
 						    socket.ConnectAsync(host, port).WaitAndUnwrap();
 							in_Renamed = (System.IO.Stream) socket.GetStream();
 							out_Renamed = (System.IO.Stream) socket.GetStream();
@@ -1245,7 +1245,7 @@ namespace Novell.Directory.Ldap
 		public class ReaderThread
 		{
 			private readonly Connection enclosingInstance;
-		    private bool isStopping;
+		    private volatile bool isStopping;
 		    private Thread enclosedThread;
 
 			public ReaderThread(Connection enclosingInstance)
@@ -1253,9 +1253,13 @@ namespace Novell.Directory.Ldap
                 this.enclosingInstance = enclosingInstance;
 			}
 
-		    public void Stop()
-		    {
-		        enclosedThread?.Join();
+		    public void Stop()		
+		    {				
+				isStopping = true;
+				if (enclosedThread != null)
+				{					
+					enclosedThread.Join ();
+				}
 		    }
 			
 			/// <summary> This thread decodes and processes RfcLdapMessage's from the server.
@@ -1273,8 +1277,11 @@ namespace Novell.Directory.Ldap
 				this.enclosingInstance.reader = enclosedThread = Thread.CurrentThread;			
 				try
 				{
-					while (!isStopping)
+					while (true)
 					{
+						// Throws exception on stopping so the shutdown code is executed.
+						if (isStopping) throw new Exception("Disconnection requested by client.");
+
 						// -------------------------------------------------------
 						// Decode an RfcLdapMessage directly from the socket.
 						// -------------------------------------------------------
@@ -1298,6 +1305,16 @@ namespace Novell.Directory.Ldap
                             // It is necessary, because there is possibility for race condition between "!myIn.CanRead" above and Asn1Identifier constructor
                             break;
 					    }
+						catch (IOException ex)
+						{
+							// On Timeout, just continue trying.
+							// This is to prevent a hang when disconnecting.
+							if (ex.InnerException is System.Net.Sockets.SocketException && 
+								((System.Net.Sockets.SocketException)ex.InnerException).SocketErrorCode == SocketError.TimedOut) {
+								continue;	
+							}
+							else throw;
+						}
 
                         int tag = asn1ID.Tag;
 						if (tag != Asn1Sequence.TAG)

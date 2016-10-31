@@ -247,7 +247,17 @@ namespace Novell.Directory.Ldap.Asn1
 		/// </param>
 		public Asn1Identifier(System.IO.Stream in_Renamed)
 		{
-			int r = in_Renamed.ReadByte();
+			// Don't know side effects of setting timeout so setting just for this line
+			int previousTimeout = in_Renamed.ReadTimeout;
+			in_Renamed.ReadTimeout = 500;
+			int r;
+			try {				
+				r = in_Renamed.ReadByte ();
+			}
+			finally {
+				in_Renamed.ReadTimeout = previousTimeout;
+			}
+
 			encodedLength++;
 			if (r < 0)
 				throw new System.IO.EndOfStreamException("BERDecoder: decode: EOF in Identifier");
